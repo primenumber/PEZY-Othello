@@ -1,0 +1,85 @@
+#include "pzc_builtin.h"
+#include "../board.hpp"
+
+int popcnt(ull x) {
+  x = ((x & UINT64_C(0xAAAAAAAAAAAAAAAA)) >>  1) + (x & UINT64_C(0x5555555555555555));
+  x = ((x & UINT64_C(0xCCCCCCCCCCCCCCCC)) >>  2) + (x & UINT64_C(0x3333333333333333));
+  x = ((x & UINT64_C(0xF0F0F0F0F0F0F0F0)) >>  4) + (x & UINT64_C(0x0F0F0F0F0F0F0F0F));
+  x = ((x & UINT64_C(0xFF00FF00FF00FF00)) >>  8) + (x & UINT64_C(0x00FF00FF00FF00FF));
+  x = ((x & UINT64_C(0xFFFF0000FFFF0000)) >> 16) + (x & UINT64_C(0x0000FFFF0000FFFF));
+  return ((x >> 32) + x) & UINT64_C(0x00000000FFFFFFFF);
+}
+
+constexpr ull mask1[4] = {
+  0x0080808080808080ULL,
+  0x7f00000000000000ULL,
+  0x0102040810204000ULL,
+  0x0040201008040201ULL
+};
+constexpr ull mask2[4] = {
+  0x0101010101010100ULL,
+  0x00000000000000feULL,
+  0x0002040810204080ULL,
+  0x8040201008040200ULL
+};
+
+ull upper_bit(ull x) {
+  x |= x >> 1;
+  x |= x >> 2;
+  x |= x >> 4;
+  x |= x >> 8;
+  x |= x >> 16;
+  x |= x >> 32;
+  return x & ~(x >> 1);
+}
+
+ull flip_impl(ull player, ull opponent, int pos, int simd_index) {
+  ull om = opponent;
+  if (simd_index) om &= 0x7E7E7E7E7E7E7E7EULL;
+  ull mask = mask1[simd_index] >> (63 - pos);
+  ull outflank = upper_bit(~om & mask) & player;
+  ull flipped = (-outflank << 1) & mask;
+  mask = mask2[simd_index] << pos;
+  outflank = mask & ((om | ~mask) + 1) & player;
+  flipped |= (outflank - (outflank != 0)) & mask;
+  return flipped;
+}
+
+ull flip(ull player, ull opponent, int pos) {
+  return flip_impl(player, opponent, pos, 0)
+    | flip_impl(player, opponent, pos, 1)
+    | flip_impl(player, opponent, pos, 2)
+    | flip_impl(player, opponent, pos, 3);
+}
+
+ull mobility_impl(ull player, ull opponent, int simd_index) {
+  ull PP, mOO, MM, flip_l, flip_r, pre_l, pre_r, shift2;
+  ull shift1[4] = { 1, 7, 9, 8 };
+  ull mflipH[4] = { 0x7e7e7e7e7e7e7e7eULL, 0x7e7e7e7e7e7e7e7eULL, 0x7e7e7e7e7e7e7e7eULL, 0xffffffffffffffffULL };
+
+  PP = player;
+  mOO = opponent & mflipH[simd_index];
+  flip_l  = mOO & (PP << shift1[simd_index]);       flip_r  = mOO & (PP >> shift1[simd_index]);
+  flip_l |= mOO & (flip_l << shift1[simd_index]);   flip_r |= mOO & (flip_r >> shift1[simd_index]);
+  pre_l   = mOO & (mOO << shift1[simd_index]);      pre_r   = pre_l >> shift1[simd_index];
+  shift2 = shift1[simd_index] + shift1[simd_index];
+  flip_l |= pre_l & (flip_l << shift2);             flip_r |= pre_r & (flip_r >> shift2);
+  flip_l |= pre_l & (flip_l << shift2);             flip_r |= pre_r & (flip_r >> shift2);
+  MM = flip_l << shift1[simd_index];                MM |= flip_r >> shift1[simd_index];
+  return MM & ~(player|opponent);
+}
+
+ull mobility(ull player, ull opponent) {
+  return mobility_impl(player, opponent, 0)
+    | mobility_impl(player, opponent, 1)
+    | mobility_impl(player, opponent, 2)
+    | mobility_impl(player, opponent, 3);
+}
+
+int mobility_count(ull player, ull opponent) {
+  return popcnt(mobility(player, opponent));
+}
+
+int stones_count(ull player, ull opponent) {
+  return popcnt(player | opponent);
+}

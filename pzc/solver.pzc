@@ -1,0 +1,210 @@
+#include "pzc_builtin.h"
+#include "../solver.hpp"
+#include "../board.hpp"
+
+// parameters
+constexpr int lower_stack_depth = 9;
+
+int max(int x, int y) {
+  if (y > x) return y;
+  else return x;
+}
+
+struct Node {
+  MobilityGenerator mg;
+  char alpha;
+  char beta;
+  bool not_pass;
+  bool passed_prev;
+  Node() {}
+  Node(const MobilityGenerator &mg, int alpha, int beta, bool passed_prev = false)
+    : mg(mg), alpha(alpha), beta(beta), not_pass(false), passed_prev(passed_prev) {}
+  Node(const MobilityGenerator &mg)
+    : Node(mg, -64, 64) {}
+  Node(const Node &) = default;
+  Node& operator=(const Node &) = default;
+};
+
+struct Result {
+  ull nodes_count;
+  int score;
+};
+
+struct Solver {
+  Node nodes_stack[lower_stack_depth + 1];
+  UpperNode *upper_stack;
+  size_t upper_stack_size;
+  int stack_index;
+
+  Node& get_node();
+  Node& get_next_node();
+  Node& get_parent_node();
+  void commit_lower_impl();
+  void pass();
+  void pass_upper();
+  void commit_upper();
+  bool commit_or_next();
+  void commit_to_upper();
+  void commit_lower();
+  bool solve_upper();
+  void solve_lower();
+  Result solve();
+};
+
+Node& Solver::get_node() {
+  return nodes_stack[stack_index - upper_stack_size];
+}
+
+Node& Solver::get_next_node() {
+  return nodes_stack[stack_index - upper_stack_size + 1];
+}
+
+Node& Solver::get_parent_node() {
+  return nodes_stack[stack_index - upper_stack_size - 1];
+}
+
+void Solver::commit_lower_impl() {
+  Node& node = get_node();
+  Node& parent = get_parent_node();
+  if (node.passed_prev) {
+    parent.alpha = max(node.alpha, parent.alpha);
+  } else {
+    parent.alpha = max(-node.alpha, parent.alpha);
+  }
+  --stack_index;
+}
+
+void Solver::pass() {
+  Node& node = get_node();
+  node.mg = node.mg.pass();
+  int tmp = node.alpha;
+  node.alpha = -node.beta;
+  node.beta = -tmp;
+  node.passed_prev = true;
+}
+
+void Solver::pass_upper() {
+  UpperNode& node = upper_stack[stack_index];
+  node = node.pass();
+}
+
+void Solver::commit_upper() {
+  UpperNode &parent = upper_stack[stack_index-1];
+  UpperNode &node = upper_stack[stack_index];
+  //table.update(node.me_pos(), node.op_pos(), -parent.beta, -parent.alpha, node.alpha);
+  parent.alpha = max(parent.alpha, node.passed() ? node.alpha : -node.alpha);
+  stack_index--;
+}
+
+bool Solver::commit_or_next() {
+  if (stack_index == 0) {
+    return true;
+  } else {
+    commit_upper();
+    return false;
+  }
+}
+
+void Solver::commit_to_upper() {
+  UpperNode &parent = upper_stack[stack_index-1];
+  Node &node = get_node();
+  parent.alpha = max(parent.alpha, node.passed_prev ? node.alpha : -node.alpha);
+  --stack_index;
+}
+
+void Solver::commit_lower() {
+  if (stack_index == upper_stack_size) {
+    commit_to_upper();
+  } else {
+    commit_lower_impl();
+  }
+}
+
+bool Solver::solve_upper() {
+  UpperNode& node = upper_stack[stack_index];
+  if (node.completed()) {
+    if (node.size() == 0) { // pass
+      if (node.passed()) {
+        node.alpha = node.score();
+        if (commit_or_next()) return true;
+      } else {
+        pass_upper();
+      }
+    } else { // completed
+      if (commit_or_next()) return true;
+    }
+  } else if (node.alpha >= node.beta) {
+    if (commit_or_next()) return true;
+  } else {
+    int pos = node.pop();
+    ull flip_bits = flip(node.me_pos(), node.op_pos(), pos);
+    if (stack_index < upper_stack_size - 1) {
+      UpperNode& next_node = upper_stack[stack_index+1];
+      next_node = node.move(flip_bits, UINT64_C(1) << pos/*, table*/);
+    } else {
+      Node& next_node = get_next_node();
+      next_node = Node(MobilityGenerator(node.op_pos() ^ flip_bits, (node.me_pos() ^ flip_bits) | (UINT64_C(1) << pos)), -node.beta, -node.alpha);
+    }
+    ++stack_index;
+  }
+  return false;
+}
+
+void Solver::solve_lower() {
+  Node& node = get_node();
+  if (node.mg.completed()) {
+    if (node.not_pass) {
+      commit_lower();
+    } else { // pass
+      if (node.passed_prev) { // end game
+        node.alpha = node.mg.score();
+        commit_lower();
+      } else { // pass
+        pass();
+      }
+    }
+  } else if (node.alpha >= node.beta) { // beta cut
+    commit_lower();
+  } else {
+    ull next_bit = node.mg.next_bit();
+    int pos = popcnt(next_bit - 1);
+    ull flip_bits = flip(node.mg.player_pos(), node.mg.opponent_pos(), pos);
+    if (flip_bits) { // movable
+      node.not_pass = true;
+      Node& next_node = get_next_node();
+      next_node = Node(node.mg.move(flip_bits, next_bit), -node.beta, -node.alpha);
+      ++stack_index;
+    }
+  }
+}
+
+Result Solver::solve() {
+  ull nodes_count = 0;
+  while (true) {
+    ++nodes_count;
+    if (stack_index < upper_stack_size) {
+      if (solve_upper()) {
+        return (Result){nodes_count, upper_stack[0].alpha};
+      }
+    } else {
+      solve_lower();
+    }
+  }
+}
+
+void pzc_Solve(
+    const AlphaBetaProblem * const abp, int * const result, UpperNode * const upper_stack,
+    const size_t count, const size_t upper_stack_size/*, Table table*/, ull * const nodes_total) {
+  int tid = get_tid() + get_pid() * get_maxtid();
+  nodes_total[tid] = 0;
+  UpperNode *ustack = upper_stack + tid * upper_stack_size;
+  for (int i = tid; i < count; i += get_maxpid() * get_maxtid()) {
+    Solver solver = {{}, ustack, upper_stack_size, 0};
+    const AlphaBetaProblem &problem = abp[i];
+    solver.upper_stack[0] = UpperNode(problem.me, problem.op, problem.alpha, problem.beta);
+    Result res = solver.solve();
+    result[i] = res.score;
+    nodes_total[tid] += res.nodes_count;
+  }
+  flush();
+}

@@ -86,8 +86,7 @@ class UpperNode {
  public:
   static constexpr int max_mobility_count = 46;
   UpperNode(ull me, ull op, char alpha, char beta, bool pass = false)
-      : me(me), op(op), possize(0), index(0),
-      alpha(alpha), beta(beta), prev_passed(pass) {
+      : alpha(alpha), beta(beta), me(me), op(op), possize(0), index(0), prev_passed(pass) {
     MobilityGenerator mg(me, op);
     while(!mg.completed()) {
       ull next_bit = mg.next_bit();
@@ -100,7 +99,10 @@ class UpperNode {
     }
     sort_by_key(cntary, cntary + possize, posary);
   }
+  UpperNode(const UpperNode &) = default;
+  UpperNode(UpperNode &&) = default;
   UpperNode& operator=(const UpperNode &) = default;
+  UpperNode& operator=(UpperNode &&) = default;
   bool completed() const {
     return index == possize;
   }
@@ -150,8 +152,8 @@ class UpperNode {
   ull me,op;
   char posary[max_mobility_count];
   char cntary[max_mobility_count];
-  char possize;
-  char index;
+  unsigned char possize;
+  unsigned char index;
   bool prev_passed;
 };
 

@@ -13,6 +13,10 @@
 #include "solver.hpp"
 #include "to_board.hpp"
 
+// parameters
+constexpr size_t lower_stack_size = 10;
+constexpr size_t upper_stack_size = 1;
+
 int popcnt(uint64_t x) {
   x = ((x & UINT64_C(0xAAAAAAAAAAAAAAAA)) >>  1) + (x & UINT64_C(0x5555555555555555));
   x = ((x & UINT64_C(0xCCCCCCCCCCCCCCCC)) >>  2) + (x & UINT64_C(0x3333333333333333));
@@ -262,11 +266,11 @@ int main(int argc, char **argv) {
 
   std::cerr << "create buffer" << std::endl;
   std::cerr << sizeof(UpperNode) << std::endl;
-  constexpr size_t upper_stack_size = 1;
   size_t global_work_size = 8192; // max size
   cl_mem memProb = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(AlphaBetaProblem)*N, nullptr, &result);
   cl_mem memRes = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(int32_t)*N, nullptr, &result);
   cl_mem memUStack = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(UpperNode)*global_work_size*upper_stack_size, nullptr, &result);
+  cl_mem memLStack = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(Node)*global_work_size*lower_stack_size, nullptr, &result);
   cl_mem memNodesTotal = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(uint64_t)*global_work_size, nullptr, &result);
 
   clEnqueueWriteBuffer(command_queue, memProb, CL_TRUE, 0, sizeof(AlphaBetaProblem)*N, problems.data(), 0, nullptr, nullptr);
@@ -281,9 +285,11 @@ int main(int argc, char **argv) {
   clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&memProb);
   clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&memRes);
   clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *)&memUStack);
-  clSetKernelArg(kernel, 3, sizeof(size_t), (void *)&N);
-  clSetKernelArg(kernel, 4, sizeof(size_t), (void *)&upper_stack_size);
-  clSetKernelArg(kernel, 5, sizeof(cl_mem), (void *)&memNodesTotal);
+  clSetKernelArg(kernel, 3, sizeof(cl_mem), (void *)&memLStack);
+  clSetKernelArg(kernel, 4, sizeof(size_t), (void *)&N);
+  clSetKernelArg(kernel, 5, sizeof(size_t), (void *)&upper_stack_size);
+  clSetKernelArg(kernel, 6, sizeof(size_t), (void *)&lower_stack_size);
+  clSetKernelArg(kernel, 7, sizeof(cl_mem), (void *)&memNodesTotal);
   
   std::cerr << "start" << std::endl;
   auto start = std::chrono::system_clock::now();

@@ -63,6 +63,21 @@ class MobilityGenerator {
   ull x, y;
 };
 
+struct Node {
+  MobilityGenerator mg;
+  char alpha;
+  char beta;
+  bool not_pass;
+  bool passed_prev;
+  Node() {}
+  Node(const MobilityGenerator &mg, int alpha, int beta, bool passed_prev = false)
+    : mg(mg), alpha(alpha), beta(beta), not_pass(false), passed_prev(passed_prev) {}
+  Node(const MobilityGenerator &mg)
+    : Node(mg, -64, 64) {}
+  Node(const Node &) = default;
+  Node& operator=(const Node &) = default;
+};
+
 inline void swap(char &a, char &b) {
   char tmp = a;
   a = b;

@@ -2,28 +2,10 @@
 #include "../solver.hpp"
 #include "../board.hpp"
 
-// parameters
-constexpr int lower_stack_depth = 9;
-
 int max(int x, int y) {
   if (y > x) return y;
   else return x;
 }
-
-struct Node {
-  MobilityGenerator mg;
-  char alpha;
-  char beta;
-  bool not_pass;
-  bool passed_prev;
-  Node() {}
-  Node(const MobilityGenerator &mg, int alpha, int beta, bool passed_prev = false)
-    : mg(mg), alpha(alpha), beta(beta), not_pass(false), passed_prev(passed_prev) {}
-  Node(const MobilityGenerator &mg)
-    : Node(mg, -64, 64) {}
-  Node(const Node &) = default;
-  Node& operator=(const Node &) = default;
-};
 
 struct Result {
   ull nodes_count;
@@ -31,7 +13,7 @@ struct Result {
 };
 
 struct Solver {
-  Node nodes_stack[lower_stack_depth + 1];
+  Node *nodes_stack;
   UpperNode *upper_stack;
   size_t upper_stack_size;
   int stack_index;
@@ -193,13 +175,16 @@ Result Solver::solve() {
 }
 
 void pzc_Solve(
-    const AlphaBetaProblem * const abp, int * const result, UpperNode * const upper_stack,
-    const size_t count, const size_t upper_stack_size/*, Table table*/, ull * const nodes_total) {
+    const AlphaBetaProblem * const abp, int * const result,
+    UpperNode * const upper_stack, Node * const lower_stack,
+    const size_t count, const size_t upper_stack_size,
+    const size_t lower_stack_size/*, Table table*/, ull * const nodes_total) {
   int tid = get_tid() + get_pid() * get_maxtid();
   nodes_total[tid] = 0;
   UpperNode *ustack = upper_stack + tid * upper_stack_size;
+  Node *lstack = lower_stack + tid * lower_stack_size;
   for (int i = tid; i < count; i += get_maxpid() * get_maxtid()) {
-    Solver solver = {{}, ustack, upper_stack_size, 0};
+    Solver solver = {lstack, ustack, upper_stack_size, 0};
     const AlphaBetaProblem &problem = abp[i];
     solver.upper_stack[0] = UpperNode(problem.me, problem.op, problem.alpha, problem.beta);
     Result res = solver.solve();

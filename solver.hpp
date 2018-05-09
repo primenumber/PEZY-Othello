@@ -172,6 +172,12 @@ class UpperNode {
   bool prev_passed;
 };
 
+struct Params {
+  size_t count;
+  size_t upper_stack_size;
+  size_t lower_stack_size;
+};
+
 //class UpperNode;
 
 //struct BatchedTask {

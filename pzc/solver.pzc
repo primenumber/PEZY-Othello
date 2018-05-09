@@ -1,6 +1,7 @@
 #include "pzc_builtin.h"
 #include "../solver.hpp"
 #include "../board.hpp"
+#include "pzc_atomic.h"
 
 int max(int x, int y) {
   if (y > x) return y;
@@ -177,14 +178,15 @@ Result Solver::solve() {
 void pzc_Solve(
     const AlphaBetaProblem * const abp, int * const result,
     UpperNode * const upper_stack, Node * const lower_stack,
-    const size_t count, const size_t upper_stack_size,
-    const size_t lower_stack_size/*, Table table*/, ull * const nodes_total) {
+    Params *params, ull * const nodes_total,
+    size_t *index) {
   int tid = get_tid() + get_pid() * get_maxtid();
   nodes_total[tid] = 0;
-  UpperNode *ustack = upper_stack + tid * upper_stack_size;
-  Node *lstack = lower_stack + tid * lower_stack_size;
-  for (int i = tid; i < count; i += get_maxpid() * get_maxtid()) {
-    Solver solver = {lstack, ustack, upper_stack_size, 0};
+  UpperNode *ustack = upper_stack + tid * params->upper_stack_size;
+  Node *lstack = lower_stack + tid * params->lower_stack_size;
+  size_t i = pz_atomic_add(index, 1);
+  for (; i < params->count; i = pz_atomic_add(index, 1)) {
+    Solver solver = {lstack, ustack, params->upper_stack_size, 0};
     const AlphaBetaProblem &problem = abp[i];
     solver.upper_stack[0] = UpperNode(problem.me, problem.op, problem.alpha, problem.beta);
     Result res = solver.solve();

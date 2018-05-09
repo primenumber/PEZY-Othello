@@ -272,8 +272,18 @@ int main(int argc, char **argv) {
   cl_mem memUStack = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(UpperNode)*global_work_size*upper_stack_size, nullptr, &result);
   cl_mem memLStack = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(Node)*global_work_size*lower_stack_size, nullptr, &result);
   cl_mem memNodesTotal = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(uint64_t)*global_work_size, nullptr, &result);
+  cl_mem memParams = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(Params), nullptr, &result);
+  cl_mem memIndex = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(size_t), nullptr, &result);
 
   clEnqueueWriteBuffer(command_queue, memProb, CL_TRUE, 0, sizeof(AlphaBetaProblem)*N, problems.data(), 0, nullptr, nullptr);
+
+  Params params = {N, upper_stack_size, lower_stack_size};
+
+  clEnqueueWriteBuffer(command_queue, memParams, CL_TRUE, 0, sizeof(Params), &params, 0, nullptr, nullptr);
+
+  size_t zero = 0;
+
+  clEnqueueWriteBuffer(command_queue, memIndex, CL_TRUE, 0, sizeof(size_t), &zero, 0, nullptr, nullptr);
 
   // pfnPezyExtSetPerThreadStackSize clExtSetPerThreadStackSize = (pfnPezyExtSetPerThreadStackSize)clGetExtensionFunctionAddress("pezy_set_per_thread_stack_size");
   // constexpr size_t per_thread_stack = 0x1000;
@@ -286,10 +296,9 @@ int main(int argc, char **argv) {
   clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&memRes);
   clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *)&memUStack);
   clSetKernelArg(kernel, 3, sizeof(cl_mem), (void *)&memLStack);
-  clSetKernelArg(kernel, 4, sizeof(size_t), (void *)&N);
-  clSetKernelArg(kernel, 5, sizeof(size_t), (void *)&upper_stack_size);
-  clSetKernelArg(kernel, 6, sizeof(size_t), (void *)&lower_stack_size);
-  clSetKernelArg(kernel, 7, sizeof(cl_mem), (void *)&memNodesTotal);
+  clSetKernelArg(kernel, 4, sizeof(cl_mem), (void *)&memParams);
+  clSetKernelArg(kernel, 5, sizeof(cl_mem), (void *)&memNodesTotal);
+  clSetKernelArg(kernel, 6, sizeof(cl_mem), (void *)&memIndex);
   
   std::cerr << "start" << std::endl;
   auto start = std::chrono::system_clock::now();

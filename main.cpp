@@ -253,7 +253,7 @@ int main(int argc, char **argv) {
 
   std::cerr << "load program" << std::endl;
   unsigned char *binary = (unsigned char *)malloc(MAX_BIN_SIZE * sizeof(char));
-  FILE *fp = fopen("kernel.sc1-64/solver.pz", "rb");
+  FILE *fp = fopen("kernel.sc2/solver.pz", "rb");
   std::size_t size = fread(binary, sizeof(char), MAX_BIN_SIZE, fp);
   fclose(fp);
 
@@ -266,7 +266,7 @@ int main(int argc, char **argv) {
 
   std::cerr << "create buffer" << std::endl;
   std::cerr << sizeof(UpperNode) << std::endl;
-  size_t global_work_size = 8192; // max size
+  size_t global_work_size = 15872; // max size
   cl_mem memProb = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(AlphaBetaProblem)*N, nullptr, &result);
   cl_mem memRes = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(int32_t)*N, nullptr, &result);
   cl_mem memUStack = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(UpperNode)*global_work_size*upper_stack_size, nullptr, &result);

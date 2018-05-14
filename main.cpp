@@ -15,7 +15,7 @@
 
 // parameters
 constexpr size_t lower_stack_size = 10;
-constexpr size_t upper_stack_size = 1;
+constexpr size_t upper_stack_size = 5;
 
 int popcnt(uint64_t x) {
   x = ((x & UINT64_C(0xAAAAAAAAAAAAAAAA)) >>  1) + (x & UINT64_C(0x5555555555555555));

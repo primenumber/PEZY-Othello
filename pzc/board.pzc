@@ -10,6 +10,18 @@ int popcnt(ull x) {
   return ((x >> 32) + x) & UINT64_C(0x00000000FFFFFFFF);
 }
 
+int ctz(ull x) {
+  unsigned int res;
+  asm("i64.ctz.u32 %0, %1": "=r"(res): "r"(x));
+  return res;
+}
+
+int clz(ull x) {
+  unsigned int res;
+  asm("i64.clz.u32 %0, %1": "=r"(res): "r"(x));
+  return res;
+}
+
 constexpr ull mask1[4] = {
   0x0080808080808080ULL,
   0x7f00000000000000ULL,
@@ -24,13 +36,7 @@ constexpr ull mask2[4] = {
 };
 
 ull upper_bit(ull x) {
-  x |= x >> 1;
-  x |= x >> 2;
-  x |= x >> 4;
-  x |= x >> 8;
-  x |= x >> 16;
-  x |= x >> 32;
-  return x & ~(x >> 1);
+  return x ? 1ull << (63 - clz(x)) : 0;
 }
 
 ull flip_impl(ull player, ull opponent, int pos, int simd_index) {

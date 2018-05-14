@@ -1,7 +1,9 @@
 #pragma once
 #include "types.hpp"
 
-int popcnt(ull player);
+int popcnt(ull x);
+int ctz(ull x);
+int clz(ull x);
 ull flip(ull player, ull opponent, int pos);
 ull mobility(ull player, ull opponent);
 int mobility_count(ull player, ull opponent);

@@ -150,7 +150,7 @@ void Solver::solve_lower() {
     commit_lower();
   } else {
     ull next_bit = node.mg.next_bit();
-    int pos = popcnt(next_bit - 1);
+    int pos = ctz(next_bit);
     ull flip_bits = flip(node.mg.player_pos(), node.mg.opponent_pos(), pos);
     if (flip_bits) { // movable
       node.not_pass = true;

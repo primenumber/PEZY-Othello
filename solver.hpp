@@ -105,7 +105,7 @@ class UpperNode {
     MobilityGenerator mg(me, op);
     while(!mg.completed()) {
       ull next_bit = mg.next_bit();
-      int pos = popcnt(next_bit - 1);
+      int pos = ctz(next_bit);
       ull flip_bits = flip(me, op, pos);
       if (flip_bits) {
         cntary[possize] = mobility_count(op ^ flip_bits, (me ^ flip_bits) | next_bit);

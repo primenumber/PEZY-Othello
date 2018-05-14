@@ -243,13 +243,12 @@ int main(int argc, char **argv) {
   result = clGetPlatformIDs(1, &platform_id, &num_platforms);
   std::cerr << "Number of platforms: " << num_platforms << std::endl;
 
-  cl_device_id device_id = nullptr;
   cl_uint num_devices = 0;
-  result = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_DEFAULT, 1, &device_id, &num_devices);
+  result = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_DEFAULT, 0, nullptr, &num_devices);
+  std::cerr << "Number of devices: " << num_devices << std::endl;
 
-  cl_context context = clCreateContext(nullptr, 1, &device_id, nullptr, nullptr, &result);
-
-  cl_command_queue command_queue = clCreateCommandQueue(context, device_id, 0, &result);
+  std::vector<cl_device_id> device_ids(num_devices);
+  result = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_DEFAULT, num_devices, device_ids.data(), nullptr);
 
   std::cerr << "load program" << std::endl;
   unsigned char *binary = (unsigned char *)malloc(MAX_BIN_SIZE * sizeof(char));
@@ -257,51 +256,91 @@ int main(int argc, char **argv) {
   std::size_t size = fread(binary, sizeof(char), MAX_BIN_SIZE, fp);
   fclose(fp);
 
-  std::cerr << "create program" << std::endl;
-  cl_int binary_status = 0;
-  cl_program program = clCreateProgramWithBinary(context, 1, &device_id, &size, (const unsigned char **)&binary, &binary_status, &result);
+  std::vector<cl_context> contexts;
+  std::vector<cl_command_queue> command_queues;
+  std::vector<cl_program> programs;
+  std::vector<cl_kernel> kernels;
+  std::vector<cl_mem> mem_probs;
+  std::vector<cl_mem> mem_results;
+  std::vector<cl_mem> mem_ustacks;
+  std::vector<cl_mem> mem_lstacks;
+  std::vector<cl_mem> mem_numnodes;
+
+  const size_t chunk_size = (N + num_devices - 1) / num_devices;
+  constexpr size_t global_work_size = 8192; // max size
+
+  for (cl_uint i = 0; i < num_devices; ++i) {
+    std::cerr << "Device " << i << std::endl;
+    cl_device_id device_id = device_ids[i];
+
+    cl_context context = clCreateContext(nullptr, 1, &device_id, nullptr, nullptr, &result);
+    contexts.push_back(context);
+
+    cl_command_queue command_queue = clCreateCommandQueue(context, device_id, 0, &result);
+    command_queues.push_back(command_queue);
+
+    std::cerr << "create program" << std::endl;
+    cl_int binary_status = 0;
+    cl_program program = clCreateProgramWithBinary(context, 1, &device_id, &size, (const unsigned char **)&binary, &binary_status, &result);
+    programs.push_back(program);
   
-  std::cerr << "create kernel" << std::endl;
-  cl_kernel kernel = clCreateKernel(program, "Solve", &result);
+    std::cerr << "create kernel" << std::endl;
+    cl_kernel kernel = clCreateKernel(program, "Solve", &result);
+    kernels.push_back(kernel);
 
-  std::cerr << "create buffer" << std::endl;
-  std::cerr << sizeof(UpperNode) << std::endl;
-  size_t global_work_size = 8192; // max size
-  cl_mem memProb = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(AlphaBetaProblem)*N, nullptr, &result);
-  cl_mem memRes = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(int32_t)*N, nullptr, &result);
-  cl_mem memUStack = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(UpperNode)*global_work_size*upper_stack_size, nullptr, &result);
-  cl_mem memLStack = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(Node)*global_work_size*lower_stack_size, nullptr, &result);
-  cl_mem memNodesTotal = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(uint64_t)*global_work_size, nullptr, &result);
+    std::cerr << "create buffer" << std::endl;
+    const size_t real_chunk_size = std::min(chunk_size, N - i * chunk_size);
+    cl_mem memProb = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(AlphaBetaProblem)*real_chunk_size, nullptr, &result);
+    cl_mem memRes = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(int32_t)*real_chunk_size, nullptr, &result);
+    cl_mem memUStack = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(UpperNode)*global_work_size*upper_stack_size, nullptr, &result);
+    cl_mem memLStack = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(Node)*global_work_size*lower_stack_size, nullptr, &result);
+    cl_mem memNodesTotal = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(uint64_t)*global_work_size, nullptr, &result);
+    mem_probs.push_back(memProb);
+    mem_results.push_back(memRes);
+    mem_ustacks.push_back(memUStack);
+    mem_lstacks.push_back(memLStack);
+    mem_numnodes.push_back(memNodesTotal);
 
-  clEnqueueWriteBuffer(command_queue, memProb, CL_TRUE, 0, sizeof(AlphaBetaProblem)*N, problems.data(), 0, nullptr, nullptr);
+    clEnqueueWriteBuffer(command_queue, memProb, CL_TRUE, 0, sizeof(AlphaBetaProblem)*real_chunk_size, &problems[i * chunk_size], 0, nullptr, nullptr);
 
-  // pfnPezyExtSetPerThreadStackSize clExtSetPerThreadStackSize = (pfnPezyExtSetPerThreadStackSize)clGetExtensionFunctionAddress("pezy_set_per_thread_stack_size");
-  // constexpr size_t per_thread_stack = 0x1000;
-  // result = clExtSetPerThreadStackSize(kernel, per_thread_stack);
-  // if (result != CL_SUCCESS) {
-  //   std::cerr << getErrorString(result) << std::endl;
-  // }
+    // pfnPezyExtSetPerThreadStackSize clExtSetPerThreadStackSize = (pfnPezyExtSetPerThreadStackSize)clGetExtensionFunctionAddress("pezy_set_per_thread_stack_size");
+    // constexpr size_t per_thread_stack = 0x1000;
+    // result = clExtSetPerThreadStackSize(kernel, per_thread_stack);
+    // if (result != CL_SUCCESS) {
+    //   std::cerr << getErrorString(result) << std::endl;
+    // }
+  }
 
-  clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&memProb);
-  clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&memRes);
-  clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *)&memUStack);
-  clSetKernelArg(kernel, 3, sizeof(cl_mem), (void *)&memLStack);
-  clSetKernelArg(kernel, 4, sizeof(size_t), (void *)&N);
-  clSetKernelArg(kernel, 5, sizeof(size_t), (void *)&upper_stack_size);
-  clSetKernelArg(kernel, 6, sizeof(size_t), (void *)&lower_stack_size);
-  clSetKernelArg(kernel, 7, sizeof(cl_mem), (void *)&memNodesTotal);
-  
-  std::cerr << "start" << std::endl;
+  free(binary);
+
   auto start = std::chrono::system_clock::now();
-  result = clEnqueueNDRangeKernel(command_queue, kernel, 1, nullptr, &global_work_size, nullptr, 0, nullptr, nullptr);
-  if (result != CL_SUCCESS) {
-    std::cerr << "kernel launch error: " << getErrorString(result) << std::endl;
+  std::cerr << "start" << std::endl;
+  for (cl_uint i = 0; i < num_devices; ++i) {
+    const size_t real_chunk_size = std::min(chunk_size, N - i * chunk_size);
+
+    clSetKernelArg(kernels[i], 0, sizeof(cl_mem), (void *)&mem_probs[i]);
+    clSetKernelArg(kernels[i], 1, sizeof(cl_mem), (void *)&mem_results[i]);
+    clSetKernelArg(kernels[i], 2, sizeof(cl_mem), (void *)&mem_ustacks[i]);
+    clSetKernelArg(kernels[i], 3, sizeof(cl_mem), (void *)&mem_lstacks[i]);
+    clSetKernelArg(kernels[i], 4, sizeof(size_t), (void *)&real_chunk_size);
+    clSetKernelArg(kernels[i], 5, sizeof(size_t), (void *)&upper_stack_size);
+    clSetKernelArg(kernels[i], 6, sizeof(size_t), (void *)&lower_stack_size);
+    clSetKernelArg(kernels[i], 7, sizeof(cl_mem), (void *)&mem_numnodes[i]);
+  
+    result = clEnqueueNDRangeKernel(command_queues[i], kernels[i], 1, nullptr, &global_work_size, nullptr, 0, nullptr, nullptr);
+    if (result != CL_SUCCESS) {
+      std::cerr << "kernel launch error: " << getErrorString(result) << std::endl;
+    }
   }
 
   std::vector<int32_t> results(N);
-  result = clEnqueueReadBuffer(command_queue, memRes, CL_TRUE, 0, sizeof(int32_t)*N, results.data(), 0, nullptr, nullptr);
-  if (result != CL_SUCCESS) {
-    std::cerr << "kernel launch error: " << getErrorString(result) << std::endl;
+  for (cl_uint i = 0; i < num_devices; ++i) {
+    const size_t real_chunk_size = std::min(chunk_size, N - i * chunk_size);
+
+    result = clEnqueueReadBuffer(command_queues[i], mem_results[i], CL_TRUE, 0, sizeof(int32_t)*real_chunk_size, &results[i * chunk_size], 0, nullptr, nullptr);
+    if (result != CL_SUCCESS) {
+      std::cerr << "read buffer error: " << getErrorString(result) << std::endl;
+    }
   }
   auto end = std::chrono::system_clock::now();
   double elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(end - start).count();
@@ -323,16 +362,17 @@ int main(int argc, char **argv) {
   }
   std::cerr << "diff: " << diff << std::endl;
 
-  clReleaseKernel(kernel);
-  clReleaseProgram(program);
-  clReleaseMemObject(memProb);
-  clReleaseMemObject(memRes);
-  clReleaseMemObject(memUStack);
-  clReleaseMemObject(memNodesTotal);
-  clReleaseCommandQueue(command_queue);
-  clReleaseContext(context);
-
-  free(binary);
+  for (cl_uint i = 0; i < num_devices; ++i) {
+    clReleaseKernel(kernels[i]);
+    clReleaseProgram(programs[i]);
+    clReleaseMemObject(mem_probs[i]);
+    clReleaseMemObject(mem_results[i]);
+    clReleaseMemObject(mem_ustacks[i]);
+    clReleaseMemObject(mem_lstacks[i]);
+    clReleaseMemObject(mem_numnodes[i]);
+    clReleaseCommandQueue(command_queues[i]);
+    clReleaseContext(contexts[i]);
+  }
 
   return 0;
 }

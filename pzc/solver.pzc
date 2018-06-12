@@ -194,4 +194,5 @@ void pzc_Solve(
     nodes_total[tid] += res.nodes_count;
   }
   flush();
+  pz_atomic_flush();
 }

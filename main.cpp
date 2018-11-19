@@ -394,6 +394,10 @@ class Solver {
 };
 
 int main(int argc, char **argv) {
+  if (argc < 3) {
+    std::cerr << argv[0] << " INPUT OUTPUT" << std::endl;
+    return EXIT_FAILURE;
+  }
   std::ifstream fin(argv[1]);
   std::size_t N;
   fin >> N;

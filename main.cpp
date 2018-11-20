@@ -417,19 +417,9 @@ int main(int argc, char **argv) {
 
   std::ofstream ofs(argv[2]);
   ofs << N << '\n';
-  uint64_t diff = 0;
-  omp_lock_t write_lock;
-  omp_init_lock(&write_lock);
-#pragma omp parallel for
   for (std::size_t i = 0; i < N; ++i) {
-    Search search = {Board(problems[i].me, problems[i].op)};
-    int answer = search.alpha_beta(-64, 64);
-    omp_set_lock(&write_lock);
-    ofs << board_str_vec[i] << ' ' << results[i] << ' ' << answer << '\n';
-    diff += abs(results[i] - answer);
-    omp_unset_lock(&write_lock);
+    ofs << board_str_vec[i] << ' ' << results[i] << '\n';
   }
-  std::cerr << "diff: " << diff << std::endl;
 
   return 0;
 }

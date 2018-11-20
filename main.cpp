@@ -15,7 +15,6 @@
 
 // parameters
 constexpr size_t lower_stack_size = 10;
-constexpr size_t upper_stack_size = 5;
 constexpr std::size_t global_work_size = 15872; // max size
 
 int popcnt(uint64_t x) {
@@ -225,8 +224,8 @@ std::string to_string(const Board& bd) {
 
 class Solver {
  public:
-  explicit Solver(bool debug = true)
-    : device_ids() {
+  explicit Solver(size_t depth, bool debug = true)
+    : upper_stack_size(depth - 5), device_ids() {
     cl_int result = 0;
 
     result = clGetPlatformIDs(1, &platform_id, &num_platforms);
@@ -375,6 +374,7 @@ class Solver {
     return results;
   }
  private:
+  size_t upper_stack_size;
   cl_platform_id platform_id = nullptr;
   cl_uint num_platforms = 0;
   cl_uint num_devices = 0;
@@ -404,15 +404,17 @@ int main(int argc, char **argv) {
   std::cerr << "N = " << N << std::endl;
   std::vector<AlphaBetaProblem> problems;
   std::vector<std::string> board_str_vec;
+  size_t max_depth = 0;
   for (std::size_t i = 0; i < N; ++i) {
     std::string b81;
     fin >> b81;
     const Board bd = toBoard(b81.c_str());
+    max_depth = std::max(max_depth, (size_t)(64-stones_count(bd.me, bd.op)));
     problems.push_back((AlphaBetaProblem){bd.me, bd.op, -64, 64});
     board_str_vec.push_back(b81);
   }
 
-  Solver solver;
+  Solver solver(max_depth);
   auto results = solver.solve(problems);
 
   std::ofstream ofs(argv[2]);

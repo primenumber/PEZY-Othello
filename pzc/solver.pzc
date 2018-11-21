@@ -167,7 +167,10 @@ Result Solver::solve() {
     ++nodes_count;
     if (stack_index < upper_stack_size) {
       if (solve_upper()) {
-        return (Result){nodes_count, upper_stack[0].alpha};
+        const int score = upper_stack[0].passed()
+          ? -upper_stack[0].alpha
+          : upper_stack[0].alpha;
+        return (Result){nodes_count, score};
       }
     } else {
       solve_lower();

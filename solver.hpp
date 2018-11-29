@@ -1,7 +1,9 @@
 #pragma once
 #include "types.hpp"
 #include "board.hpp"
-//#include "table.cuh"
+#include "table.hpp"
+
+constexpr int use_table_threshold = 56;
 
 struct AlphaBetaProblem {
   AlphaBetaProblem(ull me, ull op, int alpha, int beta)
@@ -101,7 +103,7 @@ class UpperNode {
  public:
   static constexpr int max_mobility_count = 46;
   UpperNode(ull me, ull op, char alpha, char beta, bool pass = false)
-      : alpha(alpha), beta(beta), me(me), op(op), possize(0), index(0), prev_passed(pass) {
+      : alpha(alpha), beta(beta), result(-64), me(me), op(op), possize(0), index(0), prev_passed(pass), cut(false) {
     MobilityGenerator mg(me, op);
     while(!mg.completed()) {
       ull next_bit = mg.next_bit();
@@ -136,33 +138,57 @@ class UpperNode {
   bool passed() const {
     return prev_passed;
   }
+  bool is_cut() const {
+    return cut;
+  }
   int score() const {
     return final_score(me, op);
   }
-  UpperNode move(ull bits, ull pos_bit/*, Table table*/) const {
+  UpperNode move(ull bits, ull pos_bit, const Table<int> &table) const {
     ull next_player = op ^ bits;
     ull next_opponent = (me ^ bits) | pos_bit;
-    //Entry entry = table.find(next_player, next_opponent);
-    //if (entry.enable) {
-    //  char next_alpha = max(-beta, entry.lower);
-    //  char next_beta = min(-alpha, entry.upper);
-    //  return UpperNode(next_player, next_opponent, next_alpha, next_beta);
-    //} else {
-      return UpperNode(next_player, next_opponent, -beta, -alpha);
-    //}
+    if (stones_count(next_player, next_opponent) >= use_table_threshold) {
+      return UpperNode(next_player, next_opponent, -beta, -max(alpha, result));
+    }
+    Entry<int> entry = table.get(next_player, next_opponent);
+    if (entry.enable) {
+      char next_alpha = max(-beta, entry.range.lower);
+      char next_beta = min(-max(alpha, result), entry.range.upper);
+      UpperNode res(next_player, next_opponent, next_alpha, next_beta);
+      if (next_alpha >= next_beta) {
+        res.cut = true;
+        res.result = (-beta >= entry.range.upper)
+          ? entry.range.upper
+          : entry.range.lower;
+      }
+      return res;
+    } else {
+      return UpperNode(next_player, next_opponent, -beta, -max(alpha, result));
+    }
   }
-  UpperNode pass(/*Table table*/) const {
-    //Entry entry = table.find(op, me);
-    //if (entry.enable) {
-    //  char next_alpha = max(-beta, entry.lower);
-    //  char next_beta = min(-alpha, entry.upper);
-    //  return UpperNode(op, me, next_alpha, next_beta, true);
-    //} else {
-      return UpperNode(op, me, -beta, -alpha, true);
-    //}
+  UpperNode pass(const Table<int> &table) const {
+    if (stones_count(op, me) >= use_table_threshold) {
+      return UpperNode(op, me, -beta, -max(alpha, result), true);
+    }
+    Entry<int> entry = table.get(op, me);
+    if (entry.enable) {
+      char next_alpha = max(-beta, entry.range.lower);
+      char next_beta = min(-max(alpha, result), entry.range.upper);
+      UpperNode res(op, me, next_alpha, next_beta, true);
+      if (next_alpha >= next_beta) {
+        res.cut = true;
+        res.result = (-beta >= entry.range.upper)
+          ? entry.range.upper
+          : entry.range.lower;
+      }
+      return res;
+    } else {
+      return UpperNode(op, me, -beta, -max(alpha, result), true);
+    }
   }
   char alpha;
   char beta;
+  char result;
  private:
   ull me,op;
   char posary[max_mobility_count];
@@ -170,12 +196,14 @@ class UpperNode {
   unsigned char possize;
   unsigned char index;
   bool prev_passed;
+  bool cut;
 };
 
 struct Params {
   size_t count;
   size_t upper_stack_size;
   size_t lower_stack_size;
+  size_t table_size;
 };
 
 //class UpperNode;

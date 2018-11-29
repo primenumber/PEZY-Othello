@@ -16,6 +16,7 @@ struct Result {
 struct Solver {
   Node *nodes_stack;
   UpperNode *upper_stack;
+  Table<int> table;
   size_t upper_stack_size;
   int stack_index;
 
@@ -68,14 +69,16 @@ void Solver::pass() {
 
 void Solver::pass_upper() {
   UpperNode& node = upper_stack[stack_index];
-  node = node.pass();
+  node = node.pass(table);
 }
 
 void Solver::commit_upper() {
   UpperNode &parent = upper_stack[stack_index-1];
   UpperNode &node = upper_stack[stack_index];
-  //table.update(node.me_pos(), node.op_pos(), -parent.beta, -parent.alpha, node.alpha);
-  parent.alpha = max(parent.alpha, node.passed() ? node.alpha : -node.alpha);
+  if (stones_count(node.me_pos(), node.op_pos()) < use_table_threshold) {
+    table.update(node.me_pos(), node.op_pos(), node.beta, node.alpha, node.result);
+  }
+  parent.result = max(parent.result, node.passed() ? node.result: -node.result);
   stack_index--;
 }
 
@@ -91,7 +94,7 @@ bool Solver::commit_or_next() {
 void Solver::commit_to_upper() {
   UpperNode &parent = upper_stack[stack_index-1];
   Node &node = get_node();
-  parent.alpha = max(parent.alpha, node.passed_prev ? node.alpha : -node.alpha);
+  parent.result = max(parent.result, node.passed_prev ? node.alpha : -node.alpha);
   --stack_index;
 }
 
@@ -105,10 +108,12 @@ void Solver::commit_lower() {
 
 bool Solver::solve_upper() {
   UpperNode& node = upper_stack[stack_index];
-  if (node.completed()) {
+  if (node.is_cut()) {
+    if (commit_or_next()) return true;
+  } else if (node.completed()) {
     if (node.size() == 0) { // pass
       if (node.passed()) {
-        node.alpha = node.score();
+        node.result = node.score();
         if (commit_or_next()) return true;
       } else {
         pass_upper();
@@ -116,17 +121,17 @@ bool Solver::solve_upper() {
     } else { // completed
       if (commit_or_next()) return true;
     }
-  } else if (node.alpha >= node.beta) {
+  } else if (node.result >= node.beta) {
     if (commit_or_next()) return true;
   } else {
     int pos = node.pop();
     ull flip_bits = flip(node.me_pos(), node.op_pos(), pos);
     if (stack_index < upper_stack_size - 1) {
       UpperNode& next_node = upper_stack[stack_index+1];
-      next_node = node.move(flip_bits, UINT64_C(1) << pos/*, table*/);
+      next_node = node.move(flip_bits, UINT64_C(1) << pos, table);
     } else {
       Node& next_node = get_next_node();
-      next_node = Node(MobilityGenerator(node.op_pos() ^ flip_bits, (node.me_pos() ^ flip_bits) | (UINT64_C(1) << pos)), -node.beta, -node.alpha);
+      next_node = Node(MobilityGenerator(node.op_pos() ^ flip_bits, (node.me_pos() ^ flip_bits) | (UINT64_C(1) << pos)), -node.beta, -max(node.result, node.alpha));
     }
     ++stack_index;
   }
@@ -168,8 +173,8 @@ Result Solver::solve() {
     if (stack_index < upper_stack_size) {
       if (solve_upper()) {
         const int score = upper_stack[0].passed()
-          ? -upper_stack[0].alpha
-          : upper_stack[0].alpha;
+          ? -upper_stack[0].result
+          : upper_stack[0].result;
         return (Result){nodes_count, score};
       }
     } else {
@@ -182,14 +187,16 @@ void pzc_Solve(
     const AlphaBetaProblem * const abp, int * const result,
     UpperNode * const upper_stack, Node * const lower_stack,
     Params *params, ull * const nodes_total,
-    size_t *index) {
+    size_t *index, Entry<int> *table_buf, ull *crc_table) {
   int tid = get_tid() + get_pid() * get_maxtid();
   nodes_total[tid] = 0;
   UpperNode *ustack = upper_stack + tid * params->upper_stack_size;
   Node *lstack = lower_stack + tid * params->lower_stack_size;
+  Entry<int> *table_buf_ptr = table_buf + params->table_size * tid;
+  Table<int> table(table_buf_ptr, params->table_size, crc_table);
   size_t i = pz_atomic_add(index, 1);
   for (; i < params->count; i = pz_atomic_add(index, 1)) {
-    Solver solver = {lstack, ustack, params->upper_stack_size, 0};
+    Solver solver = {lstack, ustack, table, params->upper_stack_size, 0};
     const AlphaBetaProblem &problem = abp[i];
     solver.upper_stack[0] = UpperNode(problem.me, problem.op, problem.alpha, problem.beta);
     Result res = solver.solve();

@@ -12,10 +12,12 @@
 #include "types.hpp"
 #include "solver.hpp"
 #include "to_board.hpp"
+#include "table.hpp"
 
 // parameters
 constexpr size_t lower_stack_size = 10;
 constexpr std::size_t global_work_size = 15872; // max size
+constexpr std::size_t table_size = 1 << 15;
 
 int popcnt(uint64_t x) {
   x = ((x & UINT64_C(0xAAAAAAAAAAAAAAAA)) >>  1) + (x & UINT64_C(0x5555555555555555));
@@ -227,6 +229,8 @@ class Solver {
   explicit Solver(size_t depth, bool debug = true)
     : upper_stack_size(depth - 5), device_ids() {
     cl_int result = 0;
+    ull crc_table[256];
+    make_table(crc_table);
 
     result = clGetPlatformIDs(1, &platform_id, &num_platforms);
     if (debug) std::cerr << "Number of platforms: " << num_platforms << std::endl;
@@ -268,11 +272,19 @@ class Solver {
       cl_mem memNodesTotal = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(uint64_t)*global_work_size, nullptr, &result);
       cl_mem memParams = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(Params), nullptr, &result);
       cl_mem memIndex = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(size_t), nullptr, &result);
+      cl_mem memTable = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(Entry<int>)*global_work_size*table_size, nullptr, &result);
+      ull zero = 0;
+      cl_event event;
+      clEnqueueFillBuffer(command_queue, memTable, &zero, sizeof(ull), 0, sizeof(Entry<int>)*global_work_size*table_size, 0, nullptr, &event);
+      cl_mem memCRCTable = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(ull)*256, nullptr, &result);
+      clEnqueueWriteBuffer(command_queue, memCRCTable, CL_TRUE, 0, sizeof(ull)*256, crc_table, 1, &event, nullptr);
       mem_ustacks.push_back(memUStack);
       mem_lstacks.push_back(memLStack);
       mem_params.push_back(memParams);
       mem_numnodes.push_back(memNodesTotal);
       mem_indices.push_back(memIndex);
+      mem_tables.push_back(memTable);
+      mem_crc_tables.push_back(memCRCTable);
     }
 
     free(binary);
@@ -286,6 +298,8 @@ class Solver {
       clReleaseMemObject(mem_params[i]);
       clReleaseMemObject(mem_numnodes[i]);
       clReleaseMemObject(mem_indices[i]);
+      clReleaseMemObject(mem_tables[i]);
+      clReleaseMemObject(mem_crc_tables[i]);
       clReleaseCommandQueue(command_queues[i]);
       clReleaseContext(contexts[i]);
     }
@@ -308,7 +322,7 @@ class Solver {
 
       clEnqueueWriteBuffer(command_queue, memProb, CL_TRUE, 0, sizeof(AlphaBetaProblem)*real_chunk_size, &abp[i * chunk_size], 0, nullptr, nullptr);
 
-      Params params = {real_chunk_size, upper_stack_size, lower_stack_size};
+      Params params = {real_chunk_size, upper_stack_size, lower_stack_size, table_size};
 
       clEnqueueWriteBuffer(command_queue, mem_params[i], CL_TRUE, 0, sizeof(Params), &params, 0, nullptr, nullptr);
 
@@ -334,6 +348,8 @@ class Solver {
       clSetKernelArg(kernels[i], 4, sizeof(cl_mem), (void *)&mem_params[i]);
       clSetKernelArg(kernels[i], 5, sizeof(cl_mem), (void *)&mem_numnodes[i]);
       clSetKernelArg(kernels[i], 6, sizeof(cl_mem), (void *)&mem_indices[i]);
+      clSetKernelArg(kernels[i], 7, sizeof(cl_mem), (void *)&mem_tables[i]);
+      clSetKernelArg(kernels[i], 8, sizeof(cl_mem), (void *)&mem_crc_tables[i]);
     
       result = clEnqueueNDRangeKernel(command_queues[i], kernels[i], 1, nullptr, &global_work_size, nullptr, 0, nullptr, nullptr);
       if (result != CL_SUCCESS) {
@@ -391,6 +407,8 @@ class Solver {
   std::vector<cl_mem> mem_numnodes;
   std::vector<cl_mem> mem_params;
   std::vector<cl_mem> mem_indices;
+  std::vector<cl_mem> mem_tables;
+  std::vector<cl_mem> mem_crc_tables;
 };
 
 int main(int argc, char **argv) {

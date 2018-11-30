@@ -34,6 +34,13 @@ class MobilityGenerator {
   }
   ull next_bit() {
     ull p = not_checked_yet();
+    constexpr ull corners = 0x8100000000000081ull;
+    ull q = p & corners;
+    if (q) {
+      ull bit = q & -q;
+      reset(bit);
+      return bit;
+    }
     ull bit = p & -p;
     reset(bit);
     return bit;

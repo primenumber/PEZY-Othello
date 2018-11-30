@@ -51,9 +51,9 @@ void Solver::commit_lower_impl() {
   Node& node = get_node();
   Node& parent = get_parent_node();
   if (node.passed_prev) {
-    parent.alpha = max(node.alpha, parent.alpha);
+    parent.result = max(node.result , parent.result);
   } else {
-    parent.alpha = max(-node.alpha, parent.alpha);
+    parent.result = max(-node.result , parent.result);
   }
   --stack_index;
 }
@@ -94,7 +94,7 @@ bool Solver::commit_or_next() {
 void Solver::commit_to_upper() {
   UpperNode &parent = upper_stack[stack_index-1];
   Node &node = get_node();
-  parent.result = max(parent.result, node.passed_prev ? node.alpha : -node.alpha);
+  parent.result = max(parent.result, node.passed_prev ? node.result : -node.result);
   --stack_index;
 }
 
@@ -145,13 +145,13 @@ void Solver::solve_lower() {
       commit_lower();
     } else { // pass
       if (node.passed_prev) { // end game
-        node.alpha = node.mg.score();
+        node.result = node.mg.score();
         commit_lower();
       } else { // pass
         pass();
       }
     }
-  } else if (node.alpha >= node.beta) { // beta cut
+  } else if (node.result >= node.beta) { // beta cut
     commit_lower();
   } else {
     ull next_bit = node.mg.next_bit();
@@ -160,7 +160,7 @@ void Solver::solve_lower() {
     if (flip_bits) { // movable
       node.not_pass = true;
       Node& next_node = get_next_node();
-      next_node = Node(node.mg.move(flip_bits, next_bit), -node.beta, -node.alpha);
+      next_node = Node(node.mg.move(flip_bits, next_bit), -node.beta, -max(node.alpha, node.result));
       ++stack_index;
     }
   }

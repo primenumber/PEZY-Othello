@@ -76,11 +76,12 @@ struct Node {
   MobilityGenerator mg;
   char alpha;
   char beta;
+  char result;
   bool not_pass;
   bool passed_prev;
   Node() {}
   Node(const MobilityGenerator &mg, int alpha, int beta, bool passed_prev = false)
-    : mg(mg), alpha(alpha), beta(beta), not_pass(false), passed_prev(passed_prev) {}
+    : mg(mg), alpha(alpha), beta(beta), result(-64), not_pass(false), passed_prev(passed_prev) {}
   Node(const MobilityGenerator &mg)
     : Node(mg, -64, 64) {}
   Node(const Node &) = default;

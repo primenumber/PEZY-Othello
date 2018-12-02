@@ -4,6 +4,7 @@
 #include "table.hpp"
 
 constexpr int use_table_threshold = 56;
+constexpr int use_nws_threshold = 54;
 
 struct AlphaBetaProblem {
   AlphaBetaProblem(ull me, ull op, int alpha, int beta)
@@ -110,8 +111,12 @@ inline void sort_by_key(char *first1, char *last1, char *first2) {
 class UpperNode {
  public:
   static constexpr int max_mobility_count = 46;
-  UpperNode(ull me, ull op, char alpha, char beta, bool pass = false)
-      : alpha(alpha), beta(beta), result(-64), me(me), op(op), possize(0), index(0), prev_passed(pass), cut(false) {
+  UpperNode(ull me, ull op, char alpha, char beta, bool pass)
+      : alpha(alpha), beta(beta), result(-64), me(me), op(op), possize(0), index(0), prev_passed(pass), cut(false), null_window_search(true), updated(true) {
+    // updated = true
+    // null_window_search = true
+    // reason: first node must be searched full-range
+    // so state must be same to the end of null-window-search
     MobilityGenerator mg(me, op);
     while(!mg.completed()) {
       ull next_bit = mg.next_bit();
@@ -129,10 +134,17 @@ class UpperNode {
   UpperNode& operator=(const UpperNode &) = default;
   UpperNode& operator=(UpperNode &&) = default;
   bool completed() const {
-    return index == possize;
+    return index == possize || 
+      (index == possize-1 && (!null_window_search || !updated));
   }
-  int pop() {
-    return posary[index++];
+  int front() const {
+    return posary[index];
+  }
+  void pop() {
+    const bool nws = stones_count(me, op) < use_nws_threshold;
+    updated = !nws;
+    null_window_search = nws;
+    ++index;
   }
   int size() const {
     return possize;
@@ -149,50 +161,33 @@ class UpperNode {
   bool is_cut() const {
     return cut;
   }
+  bool null_window_searching() const {
+    return null_window_search;
+  }
+  void end_null_window_search() {
+    null_window_search = false;
+  }
+  bool recent_updated() const {
+    return updated;
+  }
+  void update() {
+    updated = true;
+  }
   int score() const {
     return final_score(me, op);
   }
   UpperNode move(ull bits, ull pos_bit, const Table<int> &table) const {
     ull next_player = op ^ bits;
     ull next_opponent = (me ^ bits) | pos_bit;
-    if (stones_count(next_player, next_opponent) >= use_table_threshold) {
-      return UpperNode(next_player, next_opponent, -beta, -max(alpha, result));
-    }
-    Entry<int> entry = table.get(next_player, next_opponent);
-    if (entry.enable) {
-      char next_alpha = max(-beta, entry.range.lower);
-      char next_beta = min(-max(alpha, result), entry.range.upper);
-      UpperNode res(next_player, next_opponent, next_alpha, next_beta);
-      if (next_alpha >= next_beta) {
-        res.cut = true;
-        res.result = (-beta >= entry.range.upper)
-          ? entry.range.upper
-          : entry.range.lower;
-      }
-      return res;
+    if (null_window_search) {
+      char now_alpha = max(alpha, result);
+      return move_impl(next_player, next_opponent, -now_alpha-1, -now_alpha, false, table);
     } else {
-      return UpperNode(next_player, next_opponent, -beta, -max(alpha, result));
+      return move_impl(next_player, next_opponent, -beta, -max(alpha, result), false, table);
     }
   }
   UpperNode pass(const Table<int> &table) const {
-    if (stones_count(op, me) >= use_table_threshold) {
-      return UpperNode(op, me, -beta, -max(alpha, result), true);
-    }
-    Entry<int> entry = table.get(op, me);
-    if (entry.enable) {
-      char next_alpha = max(-beta, entry.range.lower);
-      char next_beta = min(-max(alpha, result), entry.range.upper);
-      UpperNode res(op, me, next_alpha, next_beta, true);
-      if (next_alpha >= next_beta) {
-        res.cut = true;
-        res.result = (-beta >= entry.range.upper)
-          ? entry.range.upper
-          : entry.range.lower;
-      }
-      return res;
-    } else {
-      return UpperNode(op, me, -beta, -max(alpha, result), true);
-    }
+    return move_impl(op, me, -beta, -alpha, true, table);
   }
   char alpha;
   char beta;
@@ -205,6 +200,29 @@ class UpperNode {
   unsigned char index;
   bool prev_passed;
   bool cut;
+  bool null_window_search;
+  bool updated;
+  UpperNode move_impl(ull next_player, ull next_opponent,
+      int alpha_tmp, int beta_tmp, bool passed, const Table<int> &table) const {
+    if (stones_count(next_player, next_opponent) >= use_table_threshold) {
+      return UpperNode(next_player, next_opponent, alpha_tmp, beta_tmp, passed);
+    }
+    Entry<int> entry = table.get(next_player, next_opponent);
+    if (entry.enable) {
+      char next_alpha = max(alpha_tmp, entry.range.lower);
+      char next_beta = min(beta_tmp, entry.range.upper);
+      UpperNode res(next_player, next_opponent, next_alpha, next_beta, passed);
+      if (next_alpha >= next_beta) {
+        res.cut = true;
+        res.result = (alpha_tmp >= entry.range.upper)
+          ? entry.range.upper
+          : entry.range.lower;
+      }
+      return res;
+    } else {
+      return UpperNode(next_player, next_opponent, alpha_tmp, beta_tmp, passed);
+    }
+  }
 };
 
 struct Params {

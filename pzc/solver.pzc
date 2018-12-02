@@ -78,7 +78,11 @@ void Solver::commit_upper() {
   if (stones_count(node.me_pos(), node.op_pos()) < use_table_threshold) {
     table.update(node.me_pos(), node.op_pos(), node.beta, node.alpha, node.result);
   }
-  parent.result = max(parent.result, node.passed() ? node.result: -node.result);
+  int result = node.passed() ? node.result: -node.result;
+  if (result > parent.result) {
+    parent.result = result;
+    parent.update();
+  }
   stack_index--;
 }
 
@@ -94,7 +98,11 @@ bool Solver::commit_or_next() {
 void Solver::commit_to_upper() {
   UpperNode &parent = upper_stack[stack_index-1];
   Node &node = get_node();
-  parent.result = max(parent.result, node.passed_prev ? node.result : -node.result);
+  char result = node.passed_prev ? node.result : -node.result;
+  if (result > parent.result) {
+    parent.result = result;
+    parent.update();
+  }
   --stack_index;
 }
 
@@ -124,7 +132,12 @@ bool Solver::solve_upper() {
   } else if (node.result >= node.beta) {
     if (commit_or_next()) return true;
   } else {
-    int pos = node.pop();
+    if (!node.null_window_searching() || !node.recent_updated()) {
+      node.pop();
+    } else {
+      node.end_null_window_search();
+    }
+    int pos = node.front();
     ull flip_bits = flip(node.me_pos(), node.op_pos(), pos);
     if (stack_index < upper_stack_size - 1) {
       UpperNode& next_node = upper_stack[stack_index+1];
@@ -198,7 +211,7 @@ void pzc_Solve(
   for (; i < params->count; i = pz_atomic_add(index, 1)) {
     Solver solver = {lstack, ustack, table, params->upper_stack_size, 0};
     const AlphaBetaProblem &problem = abp[i];
-    solver.upper_stack[0] = UpperNode(problem.me, problem.op, problem.alpha, problem.beta);
+    solver.upper_stack[0] = UpperNode(problem.me, problem.op, problem.alpha, problem.beta, false);
     Result res = solver.solve();
     result[i] = res.score;
     nodes_total[tid] += res.nodes_count;
